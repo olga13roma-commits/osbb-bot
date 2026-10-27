@@ -62,6 +62,16 @@ def open_spreadsheet():
 # Допоміжні функції
 # ──────────────────────────────────────────────
 
+def parse_float(value, default=0.0) -> float:
+    """Безпечно конвертувати рядок у float, враховуючи кому як десятковий роздільник."""
+    if value is None or value == "":
+        return default
+    try:
+        return float(str(value).replace(",", ".").replace(" ", "").replace("\xa0", ""))
+    except (ValueError, TypeError):
+        return default
+
+
 def get_settings(spreadsheet) -> dict:
     """Зчитати налаштування з листа «Налаштування»."""
     ws = spreadsheet.worksheet("Налаштування")
@@ -112,7 +122,11 @@ def save_reading(spreadsheet, data: dict):
         data["water_sum"],
         data["kvarplata"],
         data["tpv"],
-        data["electricity"],   # порожньо — вносить адмін
+        data.get("elec_prev", ""),
+        data.get("elec_curr", ""),
+        data.get("elec_diff", ""),
+        data.get("elec_tariff", ""),
+        data.get("elec_sum", ""),
         data["to_pay"],
         data["prev_debt"],
         data["total"],
@@ -309,46 +323,40 @@ async def enter_curr(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     diff = round(curr - prev, 3)
 
-    try:
-        water_tariff = float(settings.get("Тариф вода", 63.56))
-    except Exception:
-        water_tariff = 63.56
+    water_tariff = parse_float(settings.get("Тариф вода"), 63.56)
+    kvarplata_tariff = parse_float(settings.get("Тариф квартплата"), 5.9)
+    tpv_default = parse_float(settings.get("ТПВ"), 45.0)
 
-    try:
-        kvarplata_tariff = float(settings.get("Тариф квартплата", 3.5))
-    except Exception:
-        kvarplata_tariff = 3.5
-
-    try:
-        tpv_default = float(settings.get("ТПВ", 45))
-    except Exception:
-        tpv_default = 45.0
-
-    area = float(apt.get("Площа м²", 0) or apt.get("Площа", 0) or 0)
-    tpv_apt = apt.get("ТПВ", tpv_default)
-    try:
-        tpv = float(tpv_apt) if tpv_apt != "" else tpv_default
-    except Exception:
-        tpv = tpv_default
+    area = parse_float(apt.get("Площа м²") or apt.get("Площа"))
+    tpv = parse_float(apt.get("ТПВ"), tpv_default)
 
     # Тариф квартплати може бути індивідуальним (колонка «Тариф квартплата»)
-    tariff_kv = apt.get("Тариф квартплата", kvarplata_tariff)
-    try:
-        tariff_kv = float(tariff_kv) if tariff_kv != "" else kvarplata_tariff
-    except Exception:
-        tariff_kv = kvarplata_tariff
+    tariff_kv = parse_float(apt.get("Тариф квартплата"), kvarplata_tariff)
 
     water_sum = round(diff * water_tariff, 2)
     kvarplata = round(area * tariff_kv, 2)
 
-    # Борг (позитивне = має заплатити, негативне = переплата)
-    debt_raw = apt.get("Борг на 01.10.2026", 0)
-    try:
-        prev_debt = float(debt_raw) if debt_raw != "" else 0.0
-    except Exception:
-        prev_debt = 0.0
+    # ── Електроенергія (вносить адмін заздалегідь) ──
+    elec_prev = parse_float(apt.get("Електро попередній"), None)
+    elec_curr = parse_float(apt.get("Електро поточний"), None)
+    elec_tariff = parse_float(apt.get("Електро тариф"), None)
+    has_electricity = (
+        elec_prev is not None and
+        elec_curr is not None and
+        elec_tariff is not None and
+        elec_prev >= 0 and elec_curr >= elec_prev and elec_tariff > 0
+    )
+    if has_electricity:
+        elec_diff = round(elec_curr - elec_prev, 1)
+        elec_sum = round(elec_diff * elec_tariff, 2)
+    else:
+        elec_diff = 0
+        elec_sum = 0.0
 
-    to_pay = round(water_sum + kvarplata + tpv, 2)
+    # Борг (позитивне = має заплатити, негативне = переплата)
+    prev_debt = parse_float(apt.get("Борг на 01.10.2026"), 0.0)
+
+    to_pay = round(water_sum + kvarplata + tpv + elec_sum, 2)
     total = round(to_pay + prev_debt, 2)
 
     context.user_data["calc"] = {
@@ -357,6 +365,12 @@ async def enter_curr(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "water_sum": water_sum,
         "kvarplata": kvarplata,
         "tpv": tpv,
+        "has_electricity": has_electricity,
+        "elec_prev": elec_prev,
+        "elec_curr": elec_curr,
+        "elec_tariff": elec_tariff,
+        "elec_diff": elec_diff,
+        "elec_sum": elec_sum,
         "prev_debt": prev_debt,
         "to_pay": to_pay,
         "total": total,
@@ -368,11 +382,17 @@ async def enter_curr(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = [
         f"📄 *Рахунок за {month} — кв. {apt_no}*\n",
-        f"Показники: {prev} → {curr} = *{diff} м³*",
+        f"🚿 Показники: {prev} → {curr} = *{diff} м³*",
         f"Вода: {diff} × {water_tariff} = *{water_sum:.2f} грн*",
         f"Квартплата ({area} м²): *{kvarplata:.2f} грн*",
         f"ТПВ: *{tpv:.2f} грн*",
     ]
+
+    if has_electricity:
+        lines.append(
+            f"⚡ Електро: {elec_prev} → {elec_curr} = {elec_diff} кВт\n"
+            f"   {elec_diff} × {elec_tariff} = *{elec_sum:.2f} грн*"
+        )
 
     if prev_debt > 0:
         lines.append(f"Борг з попередніх місяців: *+{prev_debt:.2f} грн*")
@@ -424,7 +444,11 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "water_sum": calc["water_sum"],
             "kvarplata": calc["kvarplata"],
             "tpv": calc["tpv"],
-            "electricity": "",
+            "elec_prev": calc["elec_prev"] if calc["has_electricity"] else "",
+            "elec_curr": calc["elec_curr"] if calc["has_electricity"] else "",
+            "elec_diff": calc["elec_diff"] if calc["has_electricity"] else "",
+            "elec_tariff": calc["elec_tariff"] if calc["has_electricity"] else "",
+            "elec_sum": calc["elec_sum"] if calc["has_electricity"] else "",
             "to_pay": calc["to_pay"],
             "prev_debt": calc["prev_debt"],
             "total": calc["total"],
