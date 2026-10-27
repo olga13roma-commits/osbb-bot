@@ -643,16 +643,9 @@ async def set_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Запуск
 # ──────────────────────────────────────────────
 
-def main():
+async def main():
     token = os.environ.get("TELEGRAM_TOKEN")
     if not token:
-        # Для локального тесту — читаємо з credentials.json або .env
-        try:
-            with open("credentials.json", "r", encoding="utf-8") as f:
-                creds_data = json.load(f)
-            # Токен не в JSON сервісного акаунту — потрібна змінна середовища
-        except Exception:
-            pass
         raise RuntimeError(
             "TELEGRAM_TOKEN не встановлено. "
             "Додайте змінну середовища TELEGRAM_TOKEN."
@@ -682,8 +675,9 @@ def main():
     app.add_handler(CommandHandler("month", set_month))
 
     logger.info("Бот запущено")
-    app.run_polling(drop_pending_updates=True)
+    await app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
