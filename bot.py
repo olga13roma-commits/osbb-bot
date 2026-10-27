@@ -162,15 +162,15 @@ def get_apartments_without_reading(spreadsheet, month: str) -> list[dict]:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Вітаю! Це бот ОСББ Софіївське 2009.\n\n"
-        "Щоб передати показники лічильника холодної води — введіть /показники\n"
-        "Якщо потрібна допомога — /допомога"
+        "Щоб передати показники лічильника холодної води — введіть /meter\n"
+        "Якщо потрібна допомога — /help"
     )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "ℹ️ *Як користуватись ботом:*\n\n"
-        "1. Введіть /показники\n"
+        "1. Введіть /meter\n"
         "2. Введіть ваш код доступу (наприклад КВ-047)\n"
         "3. Введіть попередній показник лічильника\n"
         "4. Введіть поточний показник лічильника\n"
@@ -397,7 +397,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "Скасувати" in text or "❌" in text:
         await update.message.reply_text(
-            "Введення скасовано. Якщо потрібно — починайте знову: /показники",
+            "Введення скасовано. Якщо потрібно — починайте знову: /meter",
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
@@ -576,7 +576,7 @@ async def nagaduvannya(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📢 *Нагадування ОСББ Софіївське 2009*\n\n"
                     f"Квартира {apt_no} ще не подала показники лічильника води за *{month}*.\n\n"
                     f"⏰ Крайній термін: *{deadline} числа*.\n\n"
-                    "Будь ласка, введіть показники: /показники"
+                    "Будь ласка, введіть показники: /meter"
                 ),
                 parse_mode="Markdown"
             )
@@ -613,7 +613,7 @@ async def set_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current = settings.get("Місяць поточний", "не встановлено")
         await update.message.reply_text(
             f"Поточний місяць: *{current}*\n\n"
-            "Щоб змінити: /місяць 2026-11",
+            "Щоб змінити: /month 2026-11",
             parse_mode="Markdown"
         )
         return
@@ -622,7 +622,7 @@ async def set_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         datetime.strptime(new_month, "%Y-%m")
     except ValueError:
-        await update.message.reply_text("❌ Невірний формат. Приклад: /місяць 2026-11")
+        await update.message.reply_text("❌ Невірний формат. Приклад: /month 2026-11")
         return
 
     ws = ss.worksheet("Налаштування")
@@ -662,25 +662,24 @@ def main():
 
     # Розмова: введення показників
     conv = ConversationHandler(
-        entry_points=[CommandHandler("показники", pokaznyky_start)],
+        entry_points=[CommandHandler("meter", pokaznyky_start)],
         states={
             ENTER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_code)],
             ENTER_PREV: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_prev)],
             ENTER_CURR: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_curr)],
             CONFIRM:    [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm)],
         },
-        fallbacks=[CommandHandler("скасувати", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("допомога", help_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(conv)
 
     # Адмін-команди
-    app.add_handler(CommandHandler("звіт", zvit))
-    app.add_handler(CommandHandler("нагадування", nagaduvannya))
-    app.add_handler(CommandHandler("місяць", set_month))
+    app.add_handler(CommandHandler("report", zvit))
+    app.add_handler(CommandHandler("remind", nagaduvannya))
+    app.add_handler(CommandHandler("month", set_month))
 
     logger.info("Бот запущено")
     app.run_polling(drop_pending_updates=True)
