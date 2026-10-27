@@ -643,6 +643,26 @@ async def set_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Запуск
 # ──────────────────────────────────────────────
 
+def run_health_server():
+    """Простий HTTP-сервер для Render health check."""
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+        def log_message(self, format, *args):
+            pass  # вимкнути логи health check
+
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    logger.info(f"Health server запущено на порту {port}")
+
+
 def main():
     token = os.environ.get("TELEGRAM_TOKEN")
     if not token:
@@ -650,6 +670,9 @@ def main():
             "TELEGRAM_TOKEN не встановлено. "
             "Додайте змінну середовища TELEGRAM_TOKEN."
         )
+
+    # Запустити health check сервер для Render
+    run_health_server()
 
     app = Application.builder().token(token).build()
 
