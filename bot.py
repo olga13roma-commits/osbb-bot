@@ -643,7 +643,7 @@ async def set_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Запуск
 # ──────────────────────────────────────────────
 
-async def main():
+def main():
     token = os.environ.get("TELEGRAM_TOKEN")
     if not token:
         raise RuntimeError(
@@ -675,9 +675,8 @@ async def main():
     app.add_handler(CommandHandler("month", set_month))
 
     logger.info("Бот запущено")
-    await app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
